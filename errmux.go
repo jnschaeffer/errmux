@@ -1,10 +1,7 @@
 // Package errmux provides functions and data for handling errors in a concurrent environment.
 package errmux
 
-import (
-	"log"
-	"sync"
-)
+import "sync"
 
 // mergeErrors merges a slice of error channels into one, terminating early if q is unblocked.
 func mergeErrors(q <-chan struct{}, errs []<-chan error) <-chan error {
@@ -19,28 +16,12 @@ func mergeErrors(q <-chan struct{}, errs []<-chan error) <-chan error {
 		go func(ch <-chan error) {
 			defer wg.Done()
 
-			/*
-				It's tempting to refactor this block to look like so:
-
-					select {
-					case <-q:
-						return
-					case out <- err:
-					}
-
-				This will, however, yield only a 50% chance that our quit channel will
-				be read. As written below, there is no guarantee out will be available
-				for send, but we know by the contract of Handler that all values on out
-				will be read. The current implementation ensures our contracts for Wait
-				and Err on Handler are valid.
-			*/
 			for err := range ch {
 				select {
 				case <-q:
 					return
-				default:
+				case out <- err:
 				}
-				out <- err
 			}
 		}(e)
 	}
@@ -56,11 +37,11 @@ func mergeErrors(q <-chan struct{}, errs []<-chan error) <-chan error {
 
 // Handler represents a handler for multiple concurrent error streams.
 type Handler struct {
-	c    Consumer
-	errs <-chan error
-	q    chan struct{}
-	t    chan struct{}
-	twg  sync.WaitGroup
+	c     Consumer
+	errs  <-chan error
+	q     chan struct{}
+	t     chan struct{}
+	tOnce sync.Once
 }
 
 // NewHandler creates a handler with the provided consumer and error channels.
@@ -78,9 +59,7 @@ func NewHandler(c Consumer, errs ...<-chan error) *Handler {
 		t:    t,
 	}
 
-	h.twg.Add(1)
 	go h.start()
-	go h.waitAndClose()
 
 	return h
 }
@@ -103,15 +82,9 @@ func (h *Handler) start() {
 	h.Cancel()
 }
 
-// waitAndClose waits for termination and then closes the Handler.
-func (h *Handler) waitAndClose() {
-	h.twg.Wait()
-
-	close(h.q)
-}
-
 // Wait blocks until error processing is finished. After Wait returns, no more
-// values will be read from the handler's error channels.
+// new values passed into the handler will be consumed. They may, however,
+// be read by the handler and discarded.
 func (h *Handler) Wait() {
 	<-h.q
 }
@@ -125,14 +98,14 @@ func (h *Handler) Err() error {
 }
 
 // Cancel terminates error handling. If the handler is already canceled or finished
-// handling errors, Cancel returns false.
+// handling errors, Cancel returns false. Otherwise, Cancel blocks until the cancel
+// operation is finished.
 func (h *Handler) Cancel() bool {
-	select {
-	case h.t <- struct{}{}:
-		h.twg.Done()
-		return true
-	default:
-		log.Printf("unable to cancel")
-		return false
-	}
+	ok := false
+	h.tOnce.Do(func() {
+		close(h.q)
+		ok = true
+	})
+
+	return ok
 }

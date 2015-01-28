@@ -60,20 +60,36 @@ func TestCancel(t *testing.T) {
 
 func testCancel(t *testing.T) {
 
-	ch1 := make(chan error)
-	ch2 := make(chan error)
-	h := NewHandler(&DefaultConsumer{}, ch1, ch2)
+	ch := make(chan error, 1)
+	h := NewHandler(&DefaultConsumer{}, ch)
 	go func() {
-		ch1 <- nil
+		ch <- nil
 		h.Cancel()
 	}()
 
 	go func() {
 		h.Wait()
-		ch2 <- nil
-		ch2 <- nil
-		t.Fatalf("unexpected send")
+		ch <- fmt.Errorf("non-nil")
+		close(ch)
 	}()
 
 	h.Wait()
+
+	if h.Err() != nil {
+		t.Fatal("unexpected error")
+	}
+}
+
+func TestMultiCancel(t *testing.T) {
+
+	ch := make(chan error)
+
+	h := NewHandler(&DefaultConsumer{}, ch)
+
+	ok1 := h.Cancel()
+	ok2 := h.Cancel()
+
+	if !(ok1 == true && ok2 == false) {
+		t.Fatalf("expected true, false; got %v, %v", ok1, ok2)
+	}
 }
