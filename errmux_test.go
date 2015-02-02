@@ -18,7 +18,7 @@ func (m mapConsumer) Err() error {
 }
 
 func TestRangeAll(t *testing.T) {
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 1; i++ {
 		testRangeAll(t)
 	}
 }
@@ -53,7 +53,7 @@ func testRangeAll(t *testing.T) {
 }
 
 func TestCancel(t *testing.T) {
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 1000; i++ {
 		testCancel(t)
 	}
 }
@@ -62,16 +62,9 @@ func testCancel(t *testing.T) {
 
 	ch := make(chan error, 1)
 	h := NewHandler(&DefaultConsumer{}, ch)
-	go func() {
-		ch <- nil
-		h.Cancel()
-	}()
-
-	go func() {
-		h.Wait()
-		ch <- fmt.Errorf("non-nil")
-		close(ch)
-	}()
+	ch <- nil
+	h.Cancel()
+	ch <- fmt.Errorf("non-nil")
 
 	h.Wait()
 

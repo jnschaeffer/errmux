@@ -20,8 +20,9 @@ func mergeErrors(q <-chan struct{}, errs []<-chan error) <-chan error {
 				select {
 				case <-q:
 					return
-				case out <- err:
+				default:
 				}
+				out <- err
 			}
 		}(e)
 	}
